@@ -1,0 +1,19 @@
+# 构建产物
+bin/
+obj/
+publish/
+*.user
+*.suo
+.vs/
+
+# 运行时数据（含本机网卡名、内网地址、设备 MAC —— 绝不要提交）
+config.json
+logs/
+data/
+user-exit.flag
+
+# 系统垃圾
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak

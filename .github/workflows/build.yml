@@ -1,0 +1,32 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 编译
+        run: dotnet build src/IcsWatch/IcsWatch.csproj -c Release --warnaserror
+
+      - name: 契约自检
+        run: dotnet run --project tests/IcsWatch.SelfCheck -c Release
+
+      - name: 出包（单文件）
+        run: ./publish.ps1 -OutDir publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IcsWatch-exe
+          path: publish/IcsWatch.exe
+          if-no-files-found: error

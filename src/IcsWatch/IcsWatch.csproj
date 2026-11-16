@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>IcsWatch</AssemblyName>
+    <RootNamespace>IcsWatch</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- exe 自带图标：资源管理器 / 任务栏 / Alt-Tab 都用它 -->
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- 中文源码统一按 UTF-8 解析（双保险：源码文件本身也带 BOM） -->
+    <CodePage>65001</CodePage>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- 版本号会打在日志首行（"===== IcsWatch 启动 vX.Y.Z ====="），改完代码务必递增，
+         否则光看日志分不清现役 exe 是新是旧（踩过：截断的 17.7MB 旧文件仍被判为最新） -->
+    <Version>1.0.0</Version>
+    <Product>IcsWatch</Product>
+    <AssemblyTitle>ICS 双网卡守护</AssemblyTitle>
+    <Company>IcsWatch contributors</Company>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WMI：用 System.Management 读 MSFT_NetIPInterface / MSFT_NetConnectionProfile -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <!-- ServiceController（停/启共享服务、读 ipnat 驱动状态）在 .NET Core 里独立成包 -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 原有 PowerShell 脚本内嵌进 exe：首启释放到 scripts\，哈希不符自动重放。
+         作用：① 满足"脚本整合进 app" ② 提供 legacy-repair 应急回退 ③ 哈希可做一致性校验 -->
+    <EmbeddedResource Include="Scripts\*.ps1" />
+    <!-- 图标素材内嵌：单文件 exe 分发时不会丢 -->
+    <EmbeddedResource Include="Resources\app.ico" />
+    <EmbeddedResource Include="Resources\app-256.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 契约自检程序需要读 Repairer.PlannedKeys（内部实现细节，不对外暴露） -->
+    <InternalsVisibleTo Include="IcsWatch.SelfCheck" />
+  </ItemGroup>
+
+</Project>

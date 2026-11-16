@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 编译并自检
+        run: |
+          dotnet build src/IcsWatch/IcsWatch.csproj -c Release --warnaserror
+          dotnet run --project tests/IcsWatch.SelfCheck -c Release
+
+      - name: 出包
+        run: ./publish.ps1 -OutDir publish
+
+      - name: 打压缩包
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path publish/IcsWatch.exe, README.md, LICENSE, CHANGELOG.md `
+                           -DestinationPath "IcsWatch-$tag-win-x64.zip"
+
+      - name: 发布
+        uses: softprops/action-gh-release@v2
+        with:
+          files: IcsWatch-*-win-x64.zip
+          generate_release_notes: true
+          body: |
+            下载 `IcsWatch-<版本>-win-x64.zip`，解压后运行 `IcsWatch.exe`（需要管理员权限）。
+
+            首次使用请先看 README 的「安装」与「已知限制」两节。
+            按设备流量与访问记录需要额外安装 [Npcap](https://npcap.com)（可选）。
