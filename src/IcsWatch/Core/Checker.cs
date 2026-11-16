@@ -332,17 +332,23 @@ public static class Checker
 
             // 僵尸租约：ping 不通 + 最近 10 分钟没流量 + 不是本机。
             // 只报数（INFO），不算故障 —— 但条目越攒越多会耗尽地址池，所以给个可点的提示。
-            var zombie = devs.Count(d => !d.Online && d.Ip != cfg.PrivateIp);
-            if (zombie > 0)
-                snap.Items.Add(CheckItem.Info(CheckKeys.ZombieLease, "设备", "僵尸租约",
-                    $"{zombie} 条（无响应且无流量）", "一键维修会清理"));
-            else
-                snap.Items.Add(CheckItem.Pass(CheckKeys.ZombieLease, "设备", "僵尸租约", "无"));
         }
         else
         {
             snap.Items.Add(CheckItem.Pass(CheckKeys.Downstream, "设备", "ICS 客户端", "未发现下游设备"));
         }
+
+        // 僵尸租约这一项**必须总是产出**，不能挂在「有设备」分支里。
+        // 维修计划里声明了 CheckKeys.ZombieLease，复检是按 Key 找项；
+        // 没设备时它该是「无」，而不是「这一项不存在」—— 后者会让复检永远找不到，
+        // 于是每次维修都报「未修好: 僵尸租约」。（这条是 CI 用无设备环境跑出来的：
+        // 开发机上 ARP 表里总有残渣，本地永远看不出这个洞。）
+        var zombie = devs.Count(d => !d.Online && d.Ip != cfg.PrivateIp);
+        if (zombie > 0)
+            snap.Items.Add(CheckItem.Info(CheckKeys.ZombieLease, "设备", "僵尸租约",
+                $"{zombie} 条（无响应且无流量）", "一键维修会清理"));
+        else
+            snap.Items.Add(CheckItem.Pass(CheckKeys.ZombieLease, "设备", "僵尸租约", "无"));
 
         // ── 21/22 计划任务 ───────────────────────────────────────
         // 只把"本次开机之后 AND 3 小时以内"的失败当实时告警；
