@@ -18,7 +18,7 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- 版本号会打在日志首行（"===== IcsWatch 启动 vX.Y.Z ====="），改完代码务必递增，
          否则光看日志分不清现役 exe 是新是旧（踩过：截断的 17.7MB 旧文件仍被判为最新） -->
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>IcsWatch</Product>
     <AssemblyTitle>ICS 双网卡守护</AssemblyTitle>
     <Company>IcsWatch contributors</Company>

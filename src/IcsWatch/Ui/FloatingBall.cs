@@ -46,6 +46,19 @@ public sealed class FloatingBall : Form
     private Point _downScreen, _downLoc;
     private bool _hidden;
 
+    // ── 贴边停靠（像 QQ 那样：拖到屏幕边缘就"吸"上去，平时收起只露一条边，鼠标移过去滑出来）──
+    private enum DockEdge { None, Left, Right, Top, Bottom }
+
+    private DockEdge _dock = DockEdge.None;
+    private Point _dockShown, _dockHidden;      // 贴边后的"完全展开位"与"收起位"
+    private float _slide = 1f;                  // 0=收起，1=展开
+    private float _slideTarget = 1f;
+    private long _hideAt;                       // 到点自动收起；0=不收起
+
+    private const int SnapPx = 12;              // 松手时离边缘多近算"贴边"
+    private const int PeekPx = 10;              // 收起后还露出来的宽度
+    private const int HideDelayMs = 600;        // 鼠标移开多久后收起
+
     public FloatingBall(AppConfig cfg, MainFormDispatcher disp, Action? hideRequested = null)
     {
         _cfg = cfg;
@@ -102,6 +115,7 @@ public sealed class FloatingBall : Form
             if (_hidden) { _hidden = false; }
             Location = RestorePosition();
             Show();
+            InitDock();
             Render();
             _timer.Start();
         }
@@ -153,10 +167,31 @@ public sealed class FloatingBall : Form
             _dirty = true;
         }
 
+        // 到点自动收起（鼠标移开 HideDelayMs 之后）
+        if (_hideAt > 0 && !_pressed && Environment.TickCount64 >= _hideAt)
+        {
+            _hideAt = 0;
+            _slideTarget = 0f;
+        }
+
+        // 贴边滑出/收回：位置变了就得重新 Apply（分层窗口每次都要带新位置）
+        var sliding = Math.Abs(_slide - _slideTarget) > 0.004f;
+        if (sliding)
+        {
+            _slide += (_slideTarget - _slide) * 0.45f;   // 约 5 帧（200ms）到位，慢了显得拖沓
+            if (Math.Abs(_slide - _slideTarget) < 0.01f) _slide = _slideTarget;
+            Location = new Point(
+                (int)Math.Round(_dockHidden.X + (_dockShown.X - _dockHidden.X) * _slide),
+                (int)Math.Round(_dockHidden.Y + (_dockShown.Y - _dockHidden.Y) * _slide));
+            Render();
+            _dirty = false;
+        }
+
         if (_dirty || moving) { Render(); _dirty = false; }
 
-        // 不维修、不悬停动画、也没有新状态 → 停表（静止时零开销）
-        if (!_repairing && !moving && Math.Abs(_hover - _hoverTarget) < 0.01f && !_dirty)
+        // 不维修、不悬停动画、不滑动、没有待收起、也没有新状态 → 停表（静止时零开销）
+        if (!_repairing && !moving && !sliding && _hideAt == 0
+            && Math.Abs(_hover - _hoverTarget) < 0.01f && !_dirty)
             _timer.Stop();
     }
 
@@ -186,7 +221,7 @@ public sealed class FloatingBall : Form
     /// 球体 = 黑色圆心 + 一圈状态色圆环（形状取自品牌图标：圆环很厚，约占半径的四成）。
     ///
     /// 【为什么是"环"而不是"实心球"】状态只靠圆环的颜色表达：
-    ///   正常 青绿 / 降级 黄 / 故障 红 / 维修中 青绿+绕圈光弧 / 冷却 紫 / 未知 灰。
+    ///   正常 青绿 / 降级 黄 / 故障 红 / 维修中 状态色 + 绕圈光弧 / 冷却 紫 / 未知 灰。
     /// 黑芯保证任何壁纸下都有对比度，也和应用图标里的"黑瞳 + 绿环"是同一套语言。
     /// </summary>
     private Bitmap PaintBall()
@@ -255,6 +290,11 @@ public sealed class FloatingBall : Form
     {
         base.OnMouseEnter(e);
         _hoverTarget = 1f;
+        if (_dock != DockEdge.None)   // 贴边状态：鼠标进来就滑出来
+        {
+            _hideAt = 0;
+            _slideTarget = 1f;
+        }
         _timer.Start();
     }
 
@@ -262,6 +302,8 @@ public sealed class FloatingBall : Form
     {
         base.OnMouseLeave(e);
         _hoverTarget = 0f;
+        if (_dock != DockEdge.None && !_pressed)   // 贴边状态：离开一会儿就自己收回去
+            _hideAt = Environment.TickCount64 + HideDelayMs;
         if (!_pressed) _timer.Start();
     }
 
@@ -269,6 +311,17 @@ public sealed class FloatingBall : Form
     {
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
+        _hideAt = 0;
+
+        // 贴边收起时被按住：先完整滑出来，再按新的位置算拖动偏移
+        if (_dock != DockEdge.None && _slide < 0.99f)
+        {
+            _slide = 1f;
+            _slideTarget = 1f;
+            Location = _dockShown;
+            Render();
+        }
+
         _pressed = true;
         _dragging = false;
         _downScreen = Cursor.Position;
@@ -297,7 +350,11 @@ public sealed class FloatingBall : Form
         _pressed = false;
         _dragging = false;
 
-        if (wasDrag) SavePosition();
+        if (wasDrag)
+        {
+            SnapToEdge();           // 松手时判断有没有贴边
+            SavePosition();
+        }
         else
         {
             _disp.ToggleMainWindow();
@@ -331,8 +388,9 @@ public sealed class FloatingBall : Form
     {
         try
         {
-            _cfg.BallX = Location.X;
-            _cfg.BallY = Location.Y;
+            var p = PositionForSave();
+            _cfg.BallX = p.X;
+            _cfg.BallY = p.Y;
             _cfg.Save();
         }
         catch (Exception ex) { AppLog.Swallow("FloatingBall.SavePosition", ex); }
@@ -347,6 +405,88 @@ public sealed class FloatingBall : Form
         var y = Math.Max(vs.Top, Math.Min(p.Y, vs.Bottom - w));
         return new Point(x, y);
     }
+
+    // ── 贴边停靠 ─────────────────────────────────────────────────
+
+    /// <summary>启动时按保存的位置判断要不要贴边（上次贴边的，重启后照样贴边收起）。</summary>
+    private void InitDock()
+    {
+        try
+        {
+            _scale = DpiScale();
+            SnapToEdge();
+            _slide = 1f;
+            _slideTarget = 1f;
+            if (_dock == DockEdge.None) return;
+
+            Location = _dockShown;
+            _hideAt = Environment.TickCount64 + 1500;   // 先完整露 1.5 秒让人看见，然后自己收起
+            _timer.Start();
+        }
+        catch (Exception ex) { AppLog.Swallow("FloatingBall.InitDock", ex); }
+    }
+
+    /// <summary>
+    /// 松手位置离哪条边缘最近就贴哪条；超过 SnapPx 则取消停靠。
+    /// 用「工作区」而不是「整个屏幕」——否则贴右边会钻到任务栏底下。
+    /// </summary>
+    private void SnapToEdge()
+    {
+        try
+        {
+            _scale = DpiScale();
+            var w = (int)Math.Ceiling(BoxSize * _scale);
+            var probe = new Point(Location.X + w / 2, Location.Y + w / 2);
+            var area = Screen.FromPoint(probe).WorkingArea;
+
+            var dl = Location.X - area.Left;
+            var dr = area.Right - (Location.X + w);
+            var dt = Location.Y - area.Top;
+            var db = area.Bottom - (Location.Y + w);
+            var best = Math.Min(Math.Min(dl, dr), Math.Min(dt, db));
+
+            _dock = best > SnapPx ? DockEdge.None
+                  : best == dl ? DockEdge.Left
+                  : best == dr ? DockEdge.Right
+                  : best == dt ? DockEdge.Top
+                  : DockEdge.Bottom;
+
+            if (_dock == DockEdge.None) { _slide = _slideTarget = 1f; return; }
+
+            var peek = (int)Math.Ceiling(PeekPx * _scale);
+            switch (_dock)
+            {
+                case DockEdge.Left:
+                    _dockShown = new Point(area.Left, Location.Y);
+                    _dockHidden = new Point(area.Left - w + peek, Location.Y);
+                    break;
+                case DockEdge.Right:
+                    _dockShown = new Point(area.Right - w, Location.Y);
+                    _dockHidden = new Point(area.Right - peek, Location.Y);
+                    break;
+                case DockEdge.Top:
+                    _dockShown = new Point(Location.X, area.Top);
+                    _dockHidden = new Point(Location.X, area.Top - w + peek);
+                    break;
+                default:
+                    _dockShown = new Point(Location.X, area.Bottom - w);
+                    _dockHidden = new Point(Location.X, area.Bottom - peek);
+                    break;
+            }
+
+            // 落边后就收起来（和 QQ 一样：一松手就贴进去）
+            Location = _dockShown;
+            _slide = 1f;
+            _slideTarget = 0f;
+            _hideAt = 0;
+            _timer.Start();
+        }
+        catch (Exception ex) { AppLog.Swallow("FloatingBall.SnapToEdge", ex); }
+    }
+
+    /// <summary>贴边状态下记住的是"完全展开位"，这样重启后还能算回收起位。</summary>
+    private Point PositionForSave()
+        => _dock == DockEdge.None ? Location : _dockShown;
 
     protected override void Dispose(bool disposing)
     {
